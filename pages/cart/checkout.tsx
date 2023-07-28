@@ -1,21 +1,29 @@
 import cartStyles from "components/Cart/cart.module.scss";
 import { CheckoutButton } from "components/Cart/checkout/CheckoutButton";
 import PaymentMethodSelector from "components/Cart/checkout/PaymentMethodSelector";
-import { ContactShippingForm } from "components/Cart/checkout/ShippingForm";
+import { ContactShippingForm } from "components/Cart/checkout";
 import Summary from "components/Cart/Summary";
 import Layout from "components/Layout";
 import Navbar from "components/Navbar";
 import { FormikHelpers } from "formik";
 import { useRouter } from "next/router";
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, {
+  useRef,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { CLEAR_CART } from "redux-utils/actions/types";
-import { ContactShippingData, User } from "types/commons";
+import { CLEAR_CART, LOAD_USER } from "redux-utils/actions/types";
+import { ContactShippingData } from "types/commons";
 import { getOrderDetails } from "utils";
 import { CheckoutType } from "utils/api-utils";
 import { CODCheckout } from "utils/checkout";
 import { useTheme } from "utils/color-map";
 import CouponForm from "components/Cart/checkout/CouponForm";
+import { RazorPayCheckout } from "utils/checkout";
+
 interface Props {}
 
 type ShippingFormOnSubmitFunc = (
@@ -32,7 +40,7 @@ export const Checkout = (props: Props) => {
   const shippingFormSubmitRef = useRef(null);
   const dispatch = useDispatch();
   const [placingOrder, setPlacingOrder] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState(CheckoutType.COD);
+  const [paymentMethod, setPaymentMethod] = useState(CheckoutType.Razorpay);
   const [isCouponApplied, setCouponApplied] = useState(false);
   const [couponData, setCouponData] = useState(null);
 
@@ -45,17 +53,23 @@ export const Checkout = (props: Props) => {
       setPlacingOrder(true);
       switch (paymentMethod) {
         case CheckoutType.COD: {
-          const order = getOrderDetails(
-            user.id,
-            items,
-            values,
-            CheckoutType.COD,
-            couponData
-          );
-          await CODCheckout(order, (order) => {
+          const order = getOrderDetails({
+            userId: user.id,
+            cartItems: items,
+            shippingFormValues: values,
+            checkoutType: CheckoutType.COD,
+            couponData,
+          });
+          await CODCheckout(order, (order, userDetails) => {
             dispatch({
               type: CLEAR_CART,
             });
+            if (userDetails) {
+              dispatch({
+                type: LOAD_USER,
+                payload: userDetails,
+              });
+            }
             router.push({
               pathname: "/order/success",
               query: {
@@ -66,28 +80,28 @@ export const Checkout = (props: Props) => {
           });
           break;
         }
-        // case CheckoutType.Razorpay: {
-        //   const order = getOrderDetails(
-        //     user.id,
-        //     items,
-        //     values,
-        //     CheckoutType.Razorpay,
-        //     couponData
-        //   );
-        //   await RazorPayCheckout(order, (rzpResponse) => {
-        //     dispatch({
-        //       type: CLEAR_CART,
-        //     });
-        //     router.push({
-        //       pathname: "/order/success",
-        //       query: {
-        //         orderId: rzpResponse.razorpay_order_id,
-        //       },
-        //     });
-        //   });
-        //   setPlacingOrder(false);
-        //   break;
-        // }
+        case CheckoutType.Razorpay: {
+          const order = getOrderDetails({
+            userId: user.id,
+            cartItems: items,
+            shippingFormValues: values,
+            checkoutType: CheckoutType.COD,
+            couponData,
+          });
+          await RazorPayCheckout(order, (rzpResponse) => {
+            dispatch({
+              type: CLEAR_CART,
+            });
+            router.push({
+              pathname: "/order/success",
+              query: {
+                orderId: rzpResponse.razorpay_order_id,
+              },
+            });
+          });
+          setPlacingOrder(false);
+          break;
+        }
         default: {
           alert("Invalid checkout type selected");
           break;

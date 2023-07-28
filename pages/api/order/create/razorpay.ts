@@ -1,10 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { Address, MytryOrder, Order } from "types/commons";
 import { wooClient } from "utils/api-utils";
-import { authMiddleware, runMiddleware } from "utils/api-utils/middlewares";
+import { authMiddleware, runMiddleware, shippingAddressMiddleware, ShippingMiddlewareResponse } from "utils/api-utils/middlewares";
 import { razorpayClient } from "utils/api-utils/razorpay-client";
 
 
-export const createRazorpayOrderServerSide = async (order: any) => {
+export const createRazorpayOrderServerSide = async (order: Order) => {
   const { data } = await wooClient.get('shipping/zones/1/methods/1')
   const shipping_lines = [{
     "method_id": data.method_id,
@@ -18,12 +19,16 @@ export const createRazorpayOrderServerSide = async (order: any) => {
 export default async (req: NextApiRequest, res: NextApiResponse) => {
   if (req.method === 'POST') {
     await runMiddleware(req, res, authMiddleware)
-    const { id, total, currency } = await createRazorpayOrderServerSide(req.body);
+    const { shippingAddress, updatedUserData } = await runMiddleware<ShippingMiddlewareResponse>(req, res, shippingAddressMiddleware)
+    const { mytryMetaData, ...order } = req.body as MytryOrder
+    const { id, total, currency } = await createRazorpayOrderServerSide({ ...order, shipping: shippingAddress, billing: shippingAddress });
     const orderPaymentDetails = await razorpayClient.orders.create({
       amount: parseInt(total) * 100,
       receipt: id,
       currency
     })
-    res.json(orderPaymentDetails)
+    const response: Record<string, any> = { orderPaymentDetails }
+    if (updatedUserData) response.updatedUserData = updatedUserData
+    res.json(response)
   }
 };
